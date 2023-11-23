@@ -1,0 +1,15 @@
+/dts-v1/;
+/plugin/;  /* overlay spec file */
+
+/{
+   fragment@0 {
+      target-path="/";  /* child of root */   
+
+      __overlay__ {
+         virtual_gpiomanager {
+            compatible="vcstech,virtual_gpioman_device";
+            custom-gpios = <&gpio 21 0>;
+         };
+      };
+   };
+};
