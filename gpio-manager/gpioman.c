@@ -1,8 +1,8 @@
 #include <linux/module.h>
 #include <linux/sysfs.h>
-#include <linux/of.h>    /* of_device_id */
+#include <linux/of.h>               /* of_device_id */
 #include <linux/platform_device.h>  /* platform device and driver */
-#include <linux/gpio/consumer.h>    /* gpod_get etc */
+#include <linux/gpio/consumer.h>    /* gpiod_get etc */
 #include <linux/string.h>
 #include <linux/list.h>
 #include <linux/slab.h>
@@ -26,7 +26,6 @@
 #define KERNEL_HERTZ HZ      /* see /usr/include/asm/param.h */
 
 #define message(fmt, ...) pr_info(KBUILD_MODNAME ": " fmt "\n", ##__VA_ARGS__)
-#define debug(fmt, ...)   pr_debug(KBUILD_MODNAME ": " fmt "\n", ##__VA_ARGS__)
 #define match(a, b) strcmp(a, b) == 0
 #define UNUSED(x) (void)x
 
@@ -70,10 +69,11 @@ struct gpio_line_state {
 };
 
 
-static bool debug_mode = false;
 static LIST_HEAD(list);               /* track live gpio_line_state instances */
 struct kobject *driver_sysfs_entry;   /* main driver sysfs dir */
 
+static bool debug_mode = false;
+#define debug(fmt, ...)  if (debug_mode) message(fmt, ##__VA_ARGS__)
 
 #ifdef USE_HR_TIMERS
 static enum hrtimer_restart hr_interval_cb(struct hrtimer *timer){
@@ -126,37 +126,31 @@ static enum hrtimer_restart hr_interval_cb(struct hrtimer *timer){
 /*
  * refer to comments in the hr version of the callback function */
 static void lr_interval_cb(struct timer_list *timer){
-    struct gpio_line_state *gls =
-        container_of(timer, struct gpio_line_state, timer);
-
+    struct gpio_line_state *gls;
     debug("called lr interval callback");
+
+    gls = container_of(timer, struct gpio_line_state, timer);
 
     if (!gls->pin_ctl_enabled) return;
 
-    if (mod_timer(timer, jiffies + msecs_to_jiffies(gls->pulse_period))){
-        message("failed to rearm timer");
-    }
+    mod_timer(timer, jiffies + msecs_to_jiffies(gls->pulse_period));
 
-    // TODO refactor to match the other function once tested
     if (gls->pin_logic_level == LOGIC_HIGH){
         if (gls->counter++ == gls->on_cycles){
-            /* if there are off cycles, then move state machine to the
-             * off-cyle state; otherwise reset counter and start over */
             if (gls->off_cycles > 0) gls->pin_logic_level = LOGIC_LOW;
             else gls->counter = 0;
         }
     }
     else if (gls->pin_logic_level == LOGIC_LOW){
-        /* should only enter here if there are off cycles */
         BUG_ON(gls->off_cycles == 0);
 
         if (gls->counter++ == (gls->on_cycles + gls->off_cycles)){
             gls->pin_logic_level = LOGIC_HIGH;
-            gls->counter = 1;  /* back to logic high state; 1 because we're setting high once right away */
+            gls->counter = 1;
         }
     }
 
-    //message("LEVEL: %d  counter=%d", gls->pin_logic_level, gls->counter);
+    debug("LEVEL: %d  counter=%d", gls->pin_logic_level, gls->counter);
     gpiod_set_value(gls->gpio_descriptor, gls->pin_logic_level);
 }
 #endif   /* USE_HR_TIMERS */
@@ -344,13 +338,8 @@ static ssize_t write_sysfs_driver_attribute(struct kobject *kobj,
 /* -----------------------------------------------------------*/
 
 /*
- * Driver attributes; NOTE: *not* currently used. Kept only for reference
- * / as a placeholder.
- *
- * To manually add this as a driver sysfs property under the kobject
- * directory corresponding to this driver, call sysfs_create_file()
- * in the module init function (and balance it with a call to
- * sysfs_remove_file in the module exit function. ) */
+ * Driver attributes;
+ */
 static struct kobj_attribute debug_mode_sysfs_toggle =
 	__ATTR(debug, 0664, read_sysfs_driver_attribute, write_sysfs_driver_attribute);
 
@@ -569,7 +558,6 @@ static struct platform_driver gpioman_driver  = {
 
 static int __init initialize(void) {
 	int rc;
-    UNUSED(debug_mode_sysfs_toggle); /* see comup ment up above */
 
     message("module loaded");
 
@@ -579,6 +567,12 @@ static int __init initialize(void) {
 	driver_sysfs_entry = kobject_create_and_add(DRIVER_SYSFS_DIRNAME, kernel_kobj);
 	if (!driver_sysfs_entry){
         message("failed to create sysfs driver directory");
+        return -ENOMEM;
+    }
+
+    if (sysfs_create_file(driver_sysfs_entry, &debug_mode_sysfs_toggle.attr)){
+        message("Failed to create sysfs driver attribute");
+        kobject_put(driver_sysfs_entry); driver_sysfs_entry = NULL;
         return -ENOMEM;
     }
 

@@ -14,7 +14,7 @@ of the hardware and software:
    cases. See for example drivers/leds/leds-gpio.c
  - many SoCs GPIO pins have built-in functions (e.g. pwm) that are much more
    effficient than software emulation.
- 
+
 
 ### Building the module
 
@@ -33,7 +33,7 @@ a rasperry Pi 4B running ubuntu 22. The following is taken from one such test.
 
 ### Device tree overlay
 
-Recent kernel version allow patching the device tree via overlays at runtime, 
+Recent kernel version allow patching the device tree via overlays at runtime,
 without a need for restarting the system. It is assumed that the kernel was
 build with support for configs and device trees and device tree overlays and
 that the configs is mounted.
@@ -52,9 +52,9 @@ The following is an example of a device tree overly for use with this module.
 /dts-v1/;
 /plugin/;  /* overlay spec file */
 
-/{
+{
    fragment@0 {
-      target-path="/";  /* child of root */   
+      target-path="/";  /* child of root */
 
       __overlay__ {
          virtual_gpiomanager {
@@ -65,7 +65,7 @@ The following is an example of a device tree overly for use with this module.
    };
 };
 ```
-NOTE: 
+NOTE:
  * the overlay created a new device under the root of the device tree for the
    system. This is necessary so that the device gets implicitly
    created/instantiated by the kernel as a platform device.
@@ -75,6 +75,30 @@ NOTE:
  * the driver expects one device per gpio line/pin. Put differently, to take
    control of n GPIO pins, create n entries like the one above, all of them
    directly under the root node of the DT.
+
+Here's an example of a DT overlay with two separate device entries:
+```
+/dts-v1/;
+/plugin/;  /* overlay spec file */
+
+/{
+   fragment@0 {
+      target-path="/";  /* child of root */
+
+      __overlay__ {
+         virtual_gpiomanager0 {
+            compatible="vcstech,virtual_gpioman_device";
+            custom-gpios = <&gpio 21 0>;
+         };
+         virtual_gpiomanager1 {
+            compatible="vcstech,virtual_gpioman_device";
+            custom-gpios = <&gpio 20 0>;
+         };
+
+      };
+   };
+};
+```
 
 The device tree overlay can be applied as follows (it is assumed the overlay
 above is stored in a file named `gpioman.dto`):
@@ -143,10 +167,10 @@ A description of each file/attribute follows:
     Essentially, each cycle is a pulse with 100% duty cycle.
  - `off_cycles` is the number of contigous cycles that the line stays low.
     Essentially, each cycle is a pulse with 0% duty cycle.
- 
+
 NOTE: The values must not be negative and are expected to be sensible. E.g.
 a resolution of 1us is not normally achievable especially on e.g. a busy
-raspberry PI. 
+raspberry PI.
 
 
 ## pulse generation
@@ -208,4 +232,32 @@ freq=1KHz, on_cycles=1, off_cycles=1 ==> square wave, much higher frequency
 
 freq=1KHz, on_cycles=1, off_cycles=5  ==> duty cycle 1/6
 ![](img/freq-1khz-on1-off5.png)
+
+
+### Low-res vs High-res timers
+
+In my findings, the low resolution timers seem quite inaccurate, even when the
+frequency is below the kernel HZ. The pi4b was struggling to accurately
+set up timers for a frequency of 100Hz. Conversely, the logic analyzer traces
+show the high-res timers to be highly accurate, even at relatively much higher
+frequencies (see below screenshot of 50KHz square wave measurement; here
+sysfs freq=100KHz -- 100K 'time slots' make up each second, as discussed
+earlier. The time slots alternate between a 100% duty-cycle pulse and
+a 0% duty-cycle pulse, the result being a composite square wave with 50% duty
+cycle at half the frequency of the `freq` vaue set in `sysfs`).
+
+freq=100KHz, on_cycles=1, off_cycles=1  ==> square wave
+![](img/50KHz_square.png)
+
+Part of the reason for the relative inaccuracy of the low-res timers stems from
+the jiffy approximations and conversions. For instance, on this example system
+HZ=250; setting up the driver with `freq`=100 will give a resolution not of 10 ms,
+but of 3 jiffies, which is app 12 ms since:
+```
+jiffy = 1/HZ = 4 ms => 3 jiffies = 12 ms).
+```
+In practice, however, it seems worse. The logic analyzer trace shows periods
+of app 16 ms, which is a long way off from the 10ms resolution you may expect
+(and which the hr timers have no trouble providing).
+
 
