@@ -38,6 +38,13 @@ without a need for restarting the system. It is assumed that the kernel was
 build with support for configs and device trees and device tree overlays and
 that the configs is mounted.
 ```
+user@system:/$ cat /boot/config-$(uname -r) | grep -e -i -e 'CONFIG_OF_OVERLAY' -e 'CONFIG_OF_CONFIG' -e 'CONFIGFS_FS'
+CONFIG_OF_OVERLAY=y
+CONFIG_OF_CONFIGFS=y
+CONFIG_CONFIGFS_FS=y
+
+user@system:/$ mount | grep -i config
+configfs on /sys/kernel/config type configfs (rw,nosuid,nodev,noexec,relatime)
 ```
 
 The following is an example of a device tree overly for use with this module.
@@ -193,10 +200,12 @@ pulse (the follwing assume `freq` > 0):
 Finally, below are some demonstrative screenshots of logic analyzer traces
 (measured on a RPI4b running ubuntu 22, as mentioned).
 
-![freq=1, on_cycles=1, off_cycles=1  ](img/pw1s.png)
+freq=1, on_cycles=1, off_cycles=1  ==> square wave
+![](img/pw1s.png)
 
+freq=1KHz, on_cycles=1, off_cycles=1 ==> square wave, much higher frequency
+![](img/pw1ms.png)
 
-
-
-
+freq=1KHz, on_cycles=1, off_cycles=5  ==> duty cycle 1/6
+![](img/freq-1khz-on1-off5.png)
 
